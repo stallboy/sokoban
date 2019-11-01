@@ -3,22 +3,13 @@ import space
 import munkres
 import deadlock
 
-S_WALL = space.S_WALL
-S_SPACE = space.S_SPACE
-S_OUTSIZE = space.S_OUTSIZE
-S_BOX = space.S_BOX
-S_BOX_AT_DEST = space.S_BOX_AT_DEST
-S_DEST = space.S_DEST
-S_MAN = space.S_MAN
-S_MAN_AT_DEST = space.S_MAN_AT_DEST
 
-
-def distance(bp, dp):
+def manhattan_distance(bp, dp):
     return abs(bp[0] - dp[0]) + abs(bp[1] - dp[1])
 
 
 # 用匈牙利算法来算下最短分配距离
-def munkres_distance(boxes, dests, distance_func=distance):
+def munkres_distance(boxes, dests, distance_func=manhattan_distance):
     matrix = [[distance_func(bp, dp) for dp in dests] for bp in boxes]
     m = munkres.Munkres()
     indexes = m.compute(matrix)
@@ -32,9 +23,9 @@ def sokobanHeuristic(state, problem):
 
     for y, line in enumerate(state.layout):
         for x, c in enumerate(line):
-            if c == S_BOX:
+            if c == space.S_BOX:
                 boxes.append((x, y))
-            elif c == S_DEST or c == S_MAN_AT_DEST:
+            elif c in [space.S_DEST, space.S_MAN_AT_DEST]:
                 dests.append((x, y))
 
     dest_dis = 0
@@ -44,7 +35,7 @@ def sokobanHeuristic(state, problem):
     man_dis = 0
     mp = state.man_pos
     if boxes:
-        man_dis = min([distance(bp, mp) for bp in boxes]) - 1
+        man_dis = min([manhattan_distance(bp, mp) for bp in boxes]) - 1
         if man_dis < 0:
             man_dis = 0
     return dest_dis + man_dis
@@ -74,13 +65,13 @@ class SokobanSearchProblem(search.SearchProblem):
             nxt, new_box_pos = state.try_move2(dx, dy)
             if nxt:
                 if new_box_pos:
-                    if not self.is_ok(nxt, new_box_pos, dx, dy):
+                    if not self.is_ok(nxt, new_box_pos):
                         continue
                 successors.append((nxt, action, 1))
 
         return successors
 
-    def is_ok(self, state, new_box_pos, dx, dy):
+    def is_ok(self, state, new_box_pos):
         area = self.deadlock.get_area(new_box_pos)
         if area.reachable_dest_count == 0:
             return False
@@ -93,15 +84,16 @@ class SokobanSearchProblem(search.SearchProblem):
         if cnt > max_box_cnt:
             return False
 
+        # 这是4个一组，如果都被挡住则不能再移动了，又有非目的地的箱子则失败
         bx, by = new_box_pos
         layout = state.layout
-        # 这是4个一组，如果都被挡住则不能再移动了，又有非目的地的箱子则失败
         diagonals = [(-1, -1), (1, 1), (-1, 1), (1, -1)]
         quads = [[(bx, by), (bx + dx, by), (bx + dx, by + dy), (bx, by + dy)] for dx, dy in diagonals]
         for q in quads:
             ss = [layout[y][x] for x, y in q]
-            all_block_or_box = all([s in [S_WALL, S_BOX, S_BOX_AT_DEST] for s in ss])
-            all_block_or_boxAtDst = all([s in [S_WALL, S_BOX_AT_DEST] for s in ss])
+            # 不用考虑S_OUTSIDE,因为这种情况会被deadlock先干掉
+            all_block_or_box = all([s in [space.S_WALL, space.S_BOX, space.S_BOX_AT_DEST] for s in ss])
+            all_block_or_boxAtDst = all([s in [space.S_WALL, space.S_BOX_AT_DEST] for s in ss])
             if all_block_or_box and not all_block_or_boxAtDst:
                 return False
 

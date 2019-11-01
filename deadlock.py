@@ -8,7 +8,6 @@ class Area(object):
     def __init__(self, reachable_dest_count):
         self.reachable_dest_count = reachable_dest_count
         self.positions = []  # 包含哪些位置
-        self._ids = set()
 
 
 DEADLOCK_AREA = Area(0)
@@ -17,7 +16,6 @@ DEADLOCK_AREA = Area(0)
 class Deadlock(object):
     def __init__(self, layout):
         self.layout = layout
-        self.layoutWidth = len(self.layout[0])
 
         # 给所有静态空格的地方，赋予一个id，从下到上从左到右从0开始递增。非空格的话是-1
         self.spaceid_layout = None
@@ -29,13 +27,13 @@ class Deadlock(object):
         self.distance_matrix = None
 
         # 每个格子 ---> area
-        self.area_maps = None
+        self.spaceid_to_area = None
 
     def get_distance(self, from_pos, to_pos):
         return self.distance_matrix[self._id(from_pos)][self._id(to_pos)]
 
     def get_area(self, pos):
-        return self.area_maps[self._id(pos)]
+        return self.spaceid_to_area[self._id(pos)]
 
     def prepare(self):
         self._prepare_spaceid()
@@ -86,29 +84,27 @@ class Deadlock(object):
                 from_to_reachable_dests[from_id] = tuple(reachable_dests)
 
         # 目的格子集合 ---> 有哪些空格是只到这些目的地的
-        ## 建立area
         dests_to_area = {}
         for from_id, dest_ids in from_to_reachable_dests.items():
             if dest_ids not in dests_to_area:
                 area = Area(len(dest_ids))
                 dests_to_area[dest_ids] = area
 
-        ## 填area，有哪些空格是只到这些目的地的
+        # 填area，有哪些空格是只到这些目的地的
         for dest_ids, area in dests_to_area.items():
             for from_id, f_dest_ids in from_to_reachable_dests.items():
                 if set(dest_ids).issuperset(set(f_dest_ids)):
                     area.positions.append(self.spaceid_to_pos[from_id])
 
-
-        # 转化为area_maps
-        self.area_maps = {}
+        # 转化为spaceid_to_area
+        self.spaceid_to_area = {}
         for from_id in range(self.space_cnt):
             if from_id in from_to_reachable_dests:
                 reachable_dests = from_to_reachable_dests[from_id]
                 area = dests_to_area[reachable_dests]
-                self.area_maps[from_id] = area
+                self.spaceid_to_area[from_id] = area
             else:
-                self.area_maps[from_id] = DEADLOCK_AREA
+                self.spaceid_to_area[from_id] = DEADLOCK_AREA
 
 
 class PushBoxProblem(search.SearchProblem):
