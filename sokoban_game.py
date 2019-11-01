@@ -16,28 +16,24 @@ STEP_THINK = 1
 STEP_ACT = 2
 
 
-def _load_tiles():
-    tile = pyglet.resource.image("tile.png")
-    tile_seq = pyglet.image.ImageGrid(tile, 1, 8)
-    return pyglet.image.TextureGrid(tile_seq)
-
-
 class SokobanGame(object):
 
     def __init__(self):
-        self.layouts = space.load_layouts()
-        self.config = space.load_settings()
-        self.solved = solver.read_solution(self.config)
+        loader = space.SokobanLoader()
+        self.layouts = loader.load_maps()
+        self.tiles = loader.load_tiles()
+        self.settings = space.SokobanSettings()
+        self.solved = self.settings.solved
         print("{0}关未解决".format(len(self.layouts) - len(self.solved)))
-
-        self.tiles = _load_tiles()
         self.tile_width = self.tiles[0].width
 
         self.window = pyglet.window.Window()
         self.window.event(self.on_draw)
         self.window.event(self.on_key_press)
         self.cur_level = None
-        self.cur_layout = None
+        self.start_state = None
+        self.state = None
+
         self.state_history = []
 
         self.step_state = STEP_NONE
@@ -45,10 +41,10 @@ class SokobanGame(object):
         self.plan_explored = 0
         self.planned_actions = []
         self.planned_actions_idx = 0
-        pyglet.clock.schedule_interval(self.step, 0.1)
         self.label = pyglet.text.Label('', font_size=16, x=10, y=10)
 
-        self.start_level(self.config.getint('DEFAULT', 'last_open'))
+        self.start_level(self.settings.getint("last_open", fallback=0))
+        pyglet.clock.schedule_interval(self.step, 0.1)
 
     def start_level(self, level):
         if level < 0:
@@ -59,21 +55,19 @@ class SokobanGame(object):
         if self.cur_level == level:
             return
 
-        self.config.set('DEFAULT', 'last_open', str(level))
-        space.save_settings(self.config)
+        self.settings.set('last_open', level)
 
         self.cur_level = level
-        self.cur_layout = self.layouts[level]
+        self.start_state = self.layouts[level]
+        self.state = self.start_state
         self.window.set_caption("level {0}".format(self.cur_level))
 
         self.stop_plan()
-        self.start_state = space.SokobanState(self.cur_layout)
-        self.state = self.start_state
 
         self.state_history = []
 
-        layout_height = len(self.cur_layout) * self.tile_width
-        layout_width = len(self.cur_layout[0]) * self.tile_width
+        layout_height = len(self.state.layout) * self.tile_width
+        layout_width = len(self.state.layout[0]) * self.tile_width
         self.window.set_minimum_size(layout_width, layout_height)
 
         start_x = (self.window.width - layout_width) / 2
@@ -178,8 +172,7 @@ class SokobanGame(object):
                     action_str = "".join(action_list)
                     if self.state == self.start_state:
                         self.solved[self.cur_level] = (action_str, explored)
-                        solver.save_solution(self.config, self.solved)
-                        space.save_settings(self.config)
+                        self.settings.set_solved(self.solved)
 
                     self.start_act(action_str, explored)
                     progress = None
@@ -257,12 +250,14 @@ class ConcurrentSolver:
         except:
             return None
 
-    def _progress(self, exploredSize, frontierSize):
+    def _progress(self, exploredSet, frontier):
+        exploredSize, frontierSize = len(exploredSet), len(frontier)
         if exploredSize % 100 == 0:
             self.queue.put([0, (exploredSize, frontierSize)])
 
     def _solve(self):
-        actions, exploredSize = self.problem.solve()
+        actions, exploredSet = self.problem.solve()
+        exploredSize = len(exploredSet)
         self.queue.put([1, (actions, exploredSize)])
 
 

@@ -1,6 +1,7 @@
 import search
 import space
 import munkres
+import deadlock
 
 S_WALL = space.S_WALL
 S_SPACE = space.S_SPACE
@@ -17,15 +18,15 @@ def distance(bp, dp):
 
 
 # 用匈牙利算法来算下最短分配距离
-def munkres_distance(boxes, dests):
-    matrix = [[distance(bp, dp) for dp in dests] for bp in boxes]
+def munkres_distance(boxes, dests, distance_func=distance):
+    matrix = [[distance_func(bp, dp) for dp in dests] for bp in boxes]
     m = munkres.Munkres()
     indexes = m.compute(matrix)
     return sum([matrix[row][column] for row, column in indexes])
 
 
 # 满足Admissibility, 寻出的路径是最短的
-def sokobanHeuristic(state, _problem):
+def sokobanHeuristic(state, problem):
     boxes = []
     dests = []
 
@@ -38,7 +39,7 @@ def sokobanHeuristic(state, _problem):
 
     dest_dis = 0
     if boxes:
-        dest_dis = munkres_distance(boxes, dests)
+        dest_dis = munkres_distance(boxes, dests, distance_func=problem.deadlock.get_distance)
 
     man_dis = 0
     mp = state.man_pos
@@ -53,7 +54,9 @@ class SokobanSearchProblem(search.SearchProblem):
 
     def __init__(self, startState, progress=None):
         self.startState = startState
+        self.deadlock = deadlock.Deadlock(self.startState.layout)
         self.progress = progress
+        self.deadlock.prepare()
 
     def getStartState(self):
         return self.startState
@@ -77,8 +80,20 @@ class SokobanSearchProblem(search.SearchProblem):
 
         return successors
 
-    def is_ok(self, state, box_pos, dx, dy):
-        bx, by = box_pos
+    def is_ok(self, state, new_box_pos, dx, dy):
+        area = self.deadlock.get_area(new_box_pos)
+        if area.reachable_dest_count == 0:
+            return False
+
+        max_box_cnt = area.reachable_dest_count
+        cnt = 0
+        for area_pos in area.positions:
+            if state.has_box(area_pos[0], area_pos[1]):
+                cnt += 1
+        if cnt > max_box_cnt:
+            return False
+
+        bx, by = new_box_pos
         layout = state.layout
         # 这是4个一组，如果都被挡住则不能再移动了，又有非目的地的箱子则失败
         diagonals = [(-1, -1), (1, 1), (-1, 1), (1, -1)]
@@ -90,136 +105,4 @@ class SokobanSearchProblem(search.SearchProblem):
             if all_block_or_box and not all_block_or_boxAtDst:
                 return False
 
-        # 一个有界边上的目的位置数量小于 已经在这个边上的箱子数量，则也失败
-        hasLeftOrDownWall, numOfDest1, numOfBox1 = self.expand_wall(layout, bx, by, dx, dy, True)
-        if hasLeftOrDownWall:
-            hasRightOrUpWall, numOfDest2, numOfBox2 = self.expand_wall(layout, bx, by, dx, dy,
-                                                                       False)
-            if hasRightOrUpWall:
-                if numOfDest1 + numOfDest2 < numOfBox1 + numOfBox2:
-                    return False
-
         return True
-
-    def expand_wall(self, layout, bx, by, dx, dy, left_or_down):  # return (hasWall, numOfDest, numOfBox)
-        X = bx + dx  # X,Y是wall的位置
-        if dx == 0 and not left_or_down:  # 当left or down时包含自己当前位置
-            X = bx + 1
-
-        Y = by + dy
-        if dy == 0 and not left_or_down:
-            Y = by + 1
-
-        numOfDest = 0
-        numOfBox = 0
-        while True:
-            if dx == 0:  # 横向沿wall检查
-                if left_or_down:
-                    if X < 0:
-                        break
-                else:
-                    if X >= len(layout[0]):
-                        break
-            else:  # 纵向沿wall检查
-                if left_or_down:
-                    if Y < 0:
-                        break
-                else:
-                    if Y >= len(layout):
-                        break
-
-            if layout[Y][X] == S_WALL:  # 这个是墙那一行或列
-                s = layout[Y - dy][X - dx]  # 这是箱子那一行或列
-                if s == S_WALL:
-                    return True, numOfDest, numOfBox
-                elif s == S_DEST:
-                    numOfDest += 1
-                elif s == S_BOX:
-                    numOfBox += 1
-                elif s == S_BOX_AT_DEST:
-                    numOfBox += 1
-                    numOfDest += 1
-            else:
-                break
-
-            if dx == 0:  # 横向沿wall检查
-                X += left_or_down and -1 or 1
-            else:  # 纵向沿wall检查
-                Y += left_or_down and -1 or 1
-
-        return False, numOfDest, numOfBox
-
-
-def read_solution(config):
-    return {int(sec): (config[sec]['actions'], int(config[sec]['explored']))
-            for sec in config.sections()}
-
-
-def save_solution(config, solution):
-    for sec in config.sections():
-        del config[sec]
-    keys = list(solution.keys())
-    keys.sort()
-    for key in keys:
-        actions, explored = solution[key]
-        config[str(key)] = {
-            'explored': str(explored),
-            'actions': actions
-        }
-
-
-def _solve(lvl, problem, queue):
-    queue.put([0, lvl])
-    actions, exploredSize = problem.solve()
-    queue.put([1, (lvl, actions, exploredSize)])
-
-
-def main():
-    from multiprocessing import Pool, Manager
-    m = Manager()
-    queue = m.Queue()
-
-    thinking = set()
-    config = space.load_settings()
-    solved = read_solution(config)
-
-    layouts = space.load_layouts()
-    problems = [(lvl, SokobanSearchProblem(space.SokobanState(layout)), queue)
-                for lvl, layout in enumerate(layouts) if lvl not in solved]
-    import random
-    random.shuffle(problems)
-
-    with Pool() as p:
-        q = m.Queue()
-        r = p.starmap_async(_solve, problems)
-        while not r.ready():
-            try:
-                info_type, info = queue.get(timeout=0.1)
-                if info_type == 0:
-                    lvl = info
-                    thinking.add(lvl)
-
-                elif info_type == 1:
-                    lvl, actions, explored = info
-                    action_str = "".join(actions)
-                    thinking.remove(lvl)
-                    solved[lvl] = (action_str, explored)
-                    print("lvl={0} think={1} solved={2}, wait={3}: res={4}, {5}".format(
-                        lvl,
-                        len(thinking),
-                        len(solved),
-                        len(layouts) - len(thinking) - len(solved),
-                        explored,
-                        action_str
-                    ))
-
-                    # 排序后再保存
-                    save_solution(config, solved)
-                    space.save_settings(config)
-
-            except:
-                pass
-
-
-if __name__ == '__main__':
-    main()

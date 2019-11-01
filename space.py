@@ -1,3 +1,5 @@
+import os
+import configparser
 import pyglet
 
 S_WALL = 0
@@ -17,86 +19,126 @@ ACTIONS = {
 }
 
 
-def load_layouts():
-    pyglet.resource.path = ['res']
-    pyglet.resource.reindex()
-
-    sign_to_index = {'+': S_WALL,
-                     ' ': S_SPACE,
-                     '-': S_OUTSIZE,
-                     '#': S_BOX,
-                     '@': S_BOX_AT_DEST,
-                     '.': S_DEST,
-                     '^': S_MAN,
-                     '$': S_MAN_AT_DEST}
-    maps = []
-    current_map = []
-    MBegin = False
-    with pyglet.resource.file('map.txt', 'r') as sf:
-        for line in sf.readlines():
-            if not MBegin and line.startswith("M"):
-                MBegin = True
-                continue
-            if not MBegin:
-                continue
-
-            if line.startswith("M") and current_map:
-                maps.append(current_map)
-                current_map = []
-            elif len(line) > 0 and line[0] in sign_to_index:
-                current_map.insert(0, [sign_to_index[s] for s in line.strip()])
-
-    maps.append(tuple(current_map))
-    return tuple(maps)
+def is_dest(c):
+    return c in [S_DEST, S_MAN_AT_DEST, S_BOX_AT_DEST]
 
 
-def _find_man_pos(layout):
-    for y, line in enumerate(layout):
-        for x, idx in enumerate(line):
-            if idx == S_MAN or idx == S_MAN_AT_DEST:
-                return [x, y]
-    raise Exception("man not found")
+def is_static_block(c):
+    return c in [S_WALL, S_OUTSIZE]
 
 
-def load_settings():
-    import os
-    import configparser
+class SokobanLoader(object):
 
-    dir = pyglet.resource.get_settings_path('sokoban')
-    if not os.path.exists(dir):
-        os.makedirs(dir)
-    fn = os.path.join(dir, 'settings.ini')
+    def __init__(self):
+        pyglet.resource.path = ['res']
+        pyglet.resource.reindex()
 
-    config = configparser.ConfigParser()
+    def load_maps(self):
+        sign_to_index = {'+': S_WALL,
+                         ' ': S_SPACE,
+                         '-': S_OUTSIZE,
+                         '#': S_BOX,
+                         '@': S_BOX_AT_DEST,
+                         '.': S_DEST,
+                         '^': S_MAN,
+                         '$': S_MAN_AT_DEST}
 
-    if os.path.exists(fn):
-        with open(fn, 'r') as f:
-            config.read_file(f)
-    return config
+        maps = []
+        current_map = []
+        MBegin = False
+        with pyglet.resource.file('map.txt', 'r') as sf:
+            for line in sf.readlines():
+                if not MBegin and line.startswith("M"):
+                    MBegin = True
+                    continue
+                if not MBegin:
+                    continue
+
+                if line.startswith("M") and current_map:
+                    maps.append(current_map)
+                    current_map = []
+                elif len(line) > 0 and line[0] in sign_to_index:
+                    current_map.insert(0, [sign_to_index[s] for s in line.strip()])
+
+        maps.append(current_map)
+
+        states = []
+        for map in maps:
+            man = None
+            for y, line in enumerate(map):
+                for x, idx in enumerate(line):
+                    if idx == S_MAN or idx == S_MAN_AT_DEST:
+                        if man:
+                            raise Exception("multiple man")
+                        else:
+                            man = (x, y)
+            if man:
+                states.append(SokobanState(map, man))
+            else:
+                raise Exception("man not found")
+        return states
+
+    def load_tiles(self):
+        tile = pyglet.resource.image("tile.png")
+        tile_seq = pyglet.image.ImageGrid(tile, 1, 8)
+        tiles = pyglet.image.TextureGrid(tile_seq)
+        return tiles
 
 
-def save_settings(config):
-    import os
-    dir = pyglet.resource.get_settings_path('sokoban')
-    fn = os.path.join(dir, 'settings.ini')
+class SokobanSettings(object):
+    def __init__(self):
+        dir = pyglet.resource.get_settings_path('sokoban')
+        if not os.path.exists(dir):
+            os.makedirs(dir)
 
-    with open(fn, 'w') as configfile:
-        config.write(configfile)
+        self.setting_fn = os.path.join(dir, 'settings.ini')
+        self.config = configparser.ConfigParser()
+        if os.path.exists(self.setting_fn):
+            with open(self.setting_fn, 'r') as f:
+                self.config.read_file(f)
+        self.solved = {int(sec): (self.config[sec]['actions'], int(self.config[sec]['explored']))
+                       for sec in self.config.sections()}
+
+    def get(self, option, fallback=''):
+        return self.config.get('DEFAULT', option, fallback=fallback)
+
+    def getint(self, option, fallback=0):
+        return self.config.getint('DEFAULT', option, fallback=fallback)
+
+    def set(self, option, value):
+        self.config.set('DEFAULT', option, str(value))
+        self.save()
+
+    def set_solved(self, solution):
+        self.solved = solution
+        for sec in self.config.sections():
+            del self.config[sec]
+        keys = list(solution.keys())
+        keys.sort()  # 排序后再保存
+        for key in keys:
+            actions, explored = solution[key]
+            self.config[str(key)] = {
+                'explored': str(explored),
+                'actions': actions
+            }
+
+        self.save()
+
+    def save(self):
+        with open(self.setting_fn, 'w') as f:
+            self.config.write(f)
 
 
 class SokobanState(object):
-    def __init__(self, layout, man_pos=None):
+    def __init__(self, layout, man_pos):
         self.layout = [list(line) for line in layout]  # deep copy
-        if man_pos:
-            self.man_pos = list(man_pos)
-        else:
-            self.man_pos = _find_man_pos(layout)
+        self.man_pos = man_pos
 
     def __eq__(self, other):
-        return other and self.layout == other.layout and self.man_pos == other.man_pos
+        return other and self.man_pos == other.man_pos and self.layout == other.layout
 
     def __hash__(self):
-        return hash((tuple([tuple(line) for line in self.layout]), tuple(self.man_pos)))
+        return hash((tuple([tuple(line) for line in self.layout]), self.man_pos))
 
     def has_space(self, x, y):
         s = self.layout[y][x]
@@ -107,8 +149,8 @@ class SokobanState(object):
         return s == S_BOX or s == S_BOX_AT_DEST
 
     def enter_man(self, x, y):
-        self.man_pos = [x, y]
-        if self.layout[y][x] in [S_DEST, S_BOX_AT_DEST, S_MAN_AT_DEST]:
+        self.man_pos = (x, y)
+        if is_dest(self.layout[y][x]):
             self.layout[y][x] = S_MAN_AT_DEST
         else:
             self.layout[y][x] = S_MAN
@@ -120,7 +162,7 @@ class SokobanState(object):
             self.layout[y][x] = S_DEST
 
     def enter_box(self, x, y):
-        if self.layout[y][x] in [S_DEST, S_BOX_AT_DEST, S_MAN_AT_DEST]:
+        if is_dest(self.layout[y][x]):
             self.layout[y][x] = S_BOX_AT_DEST
         else:
             self.layout[y][x] = S_BOX
