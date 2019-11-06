@@ -20,7 +20,14 @@ class SearchProblem:
         raise NotImplementedError
 
 
-def depthFirstSearch(problem):
+def nullProgress(explored, frontier):
+    pass
+
+
+def depthFirstSearch(problem, progress=nullProgress):
+    if progress is None:
+        progress = nullProgress
+
     frontier = util.Stack()
     state = problem.getStartState()
     node = [state, []]
@@ -35,6 +42,7 @@ def depthFirstSearch(problem):
         if problem.isGoalState(state):
             return solution, exploredSet
         exploredSet.add(state)
+        progress(exploredSet, frontier)
 
         for nextState, action, stepCost in problem.getSuccessors(state):
             if nextState not in exploredSet:
@@ -42,7 +50,10 @@ def depthFirstSearch(problem):
                 frontier.push(nextNode)
 
 
-def breadthFirstSearch(problem):
+def breadthFirstSearch(problem, progress=nullProgress):
+    if progress is None:
+        progress = nullProgress
+
     frontier = util.Queue()
     state = problem.getStartState()
     node = [state, []]
@@ -57,6 +68,7 @@ def breadthFirstSearch(problem):
         if problem.isGoalState(state):
             return solution, exploredSet
         exploredSet[state] = solution
+        progress(exploredSet, frontier)
 
         for nextState, action, stepCost in problem.getSuccessors(state):
             if nextState not in exploredSet:
@@ -64,12 +76,8 @@ def breadthFirstSearch(problem):
                 frontier.push(nextNode)
 
 
-def nullHeuristic(state, problem=None):
+def nullHeuristic(state, problem):
     return 0
-
-
-def nullProgress(explored, frontier):
-    pass
 
 
 def aStarSearch(problem, heuristic=nullHeuristic, progress=nullProgress):

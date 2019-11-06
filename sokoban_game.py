@@ -38,10 +38,16 @@ class SokobanGame(object):
 
         self.step_state = STEP_NONE
         self.solver = None
+        self.solver_algorithm = solver.ASTAR_DEADLOCK
         self.plan_explored = 0
         self.planned_actions = []
         self.planned_actions_idx = 0
-        self.label = pyglet.text.Label('', font_size=16, x=10, y=10)
+
+        self.label1 = pyglet.text.Label('', font_size=16, x=10, y=450)
+        self.label2 = pyglet.text.Label('', font_size=16, x=10, y=10)
+
+        self.batch = None
+        self.all_sprites = None
 
         self.start_level(self.settings.getint("last_open", fallback=0))
         pyglet.clock.schedule_interval(self.step, 0.1)
@@ -114,7 +120,6 @@ class SokobanGame(object):
         if symbol in KEY_TO_ACTIONS:
             self.stop_plan()
             self.act(KEY_TO_ACTIONS[symbol])
-
         elif symbol == key.B:
             self.stop_plan()
             self.undo()
@@ -127,7 +132,6 @@ class SokobanGame(object):
             else:
                 nxt = self.cur_level + dir
             self.start_level(nxt)
-
         elif symbol == key.HOME:
             ctrl = modifiers & key.MOD_CTRL != 0
             if not ctrl and self.cur_level in self.solved:
@@ -135,8 +139,19 @@ class SokobanGame(object):
                 self.start_act(actions, explored)
             else:
                 self.start_plan()
-
         elif symbol == key.END:
+            self.stop_plan()
+
+        elif symbol == key._1:
+            self.solver_algorithm = solver.BFS
+            self.stop_plan()
+
+        elif symbol == key._2:
+            self.solver_algorithm = solver.ASTAR
+            self.stop_plan()
+
+        elif symbol == key._3:
+            self.solver_algorithm = solver.ASTAR_DEADLOCK
             self.stop_plan()
 
     def next_unsolved_level(self, dir):
@@ -179,8 +194,8 @@ class SokobanGame(object):
                     print(self.cur_level, "solution:", explored, action_str)
 
             if progress:
-                explored, frontier = progress
-                self.label.text = 'THINKING explored={0}'.format(explored)
+                self.plan_explored, frontier = progress
+                self.update_label()
 
         if self.step_state == STEP_ACT:
             if self.planned_actions_idx < len(self.planned_actions):
@@ -190,14 +205,26 @@ class SokobanGame(object):
             else:
                 self.stop_plan()
 
+    step_to_text = {STEP_NONE: '', STEP_THINK: 'think', STEP_ACT: 'act'}
+    algorithm_to_text = {solver.BFS: 'bfs', solver.ASTAR: 'astar', solver.ASTAR_DEADLOCK: 'astar_deadlock'}
+
+    def update_label(self):
+        self.label1.text = SokobanGame.algorithm_to_text[self.solver_algorithm]
+        solved_text = (self.cur_level in self.solved) and 'solved' or 'unsolved'
+        explored_text = (self.cur_level not in self.solved and self.step_state == STEP_NONE) \
+                        and ' ' or 'explored={0}'.format(self.plan_explored)
+        self.label2.text = '{0} {1} {2}'.format(solved_text, SokobanGame.step_to_text[self.step_state], explored_text)
+
     def start_plan(self):
         if self.solver:
             self.solver.end()
             self.solver = None
 
-        self.solver = ConcurrentSolver(self.state)
+        self.solver = ConcurrentSolver(self.state, self.solver_algorithm)
         self.solver.start()
         self.step_state = STEP_THINK
+        self.plan_explored = 0
+        self.update_label()
 
     def start_act(self, actions, explored):
         if self.solver:
@@ -205,10 +232,10 @@ class SokobanGame(object):
             self.solver = None
 
         self.step_state = STEP_ACT
-        self.label.text = 'ACTING explored={0}'.format(explored)
         self.plan_explored = explored
         self.planned_actions = actions
         self.planned_actions_idx = 0
+        self.update_label()
 
     def stop_plan(self):
         if self.solver:
@@ -217,25 +244,24 @@ class SokobanGame(object):
 
         self.step_state = STEP_NONE
         if self.cur_level in self.solved:
-            actions, explored = self.solved[self.cur_level]
-            self.label.text = 'WAITING explored={0}'.format(explored)
-        else:
-            self.label.text = 'WAITING'
+            self.planned_actions, self.plan_explored = self.solved[self.cur_level]
+        self.update_label()
 
     def on_draw(self):
         self.window.clear()
         self.batch.draw()
-        self.label.draw()
+        self.label1.draw()
+        self.label2.draw()
 
     def run(self):
         pyglet.app.run()
 
 
 class ConcurrentSolver:
-    def __init__(self, startState):
+    def __init__(self, startState, algorithm):
         self.startState = startState
         self.queue = multiprocessing.Queue()
-        self.problem = solver.SokobanSearchProblem(startState, self._progress)
+        self.problem = solver.SokobanSearchProblem(startState, progress=self._progress, algorithm=algorithm)
         self.process = multiprocessing.Process(target=self._solve)
 
     def start(self):
