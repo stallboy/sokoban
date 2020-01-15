@@ -20,7 +20,7 @@ class SearchProblem:
         raise NotImplementedError
 
 
-def nullProgress(explored, frontier):
+def nullProgress(_explored, _frontier):
     pass
 
 
@@ -88,18 +88,22 @@ def aStarSearch(problem, heuristic=nullHeuristic, progress=nullProgress):
 
     frontier = util.PriorityQueue()
     state = problem.getStartState()
-    cost = 0
-    node = [state, [], cost]
-    frontier.push(node, cost + heuristic(state, problem))
-    frontierStateToNode = {state: node}
+    g = 0
+    h = heuristic(state, problem)
+    f = g + h
+    node = [state, [], g, h]
+
+    frontier.push(node, f)
+    frontierMap = {state: node}
     exploredSet = set()
 
     while True:
         if frontier.isEmpty():
             return [], exploredSet
 
-        state, solution, cost = frontier.pop()
-        del frontierStateToNode[state]
+        state, solution, curG, _ = frontier.pop()
+        del frontierMap[state]
+
         if problem.isGoalState(state):
             return solution, exploredSet
 
@@ -107,18 +111,27 @@ def aStarSearch(problem, heuristic=nullHeuristic, progress=nullProgress):
         progress(exploredSet, frontier)
 
         for nextState, action, stepCost in problem.getSuccessors(state):
-            if (nextState not in exploredSet) and (nextState not in frontierStateToNode):
-                nextCost = cost + stepCost
-                nextNode = [nextState, [*solution, action], nextCost]
-                frontier.push(nextNode, nextCost + heuristic(nextState, problem))
-                frontierStateToNode[nextState] = nextNode
-            elif nextState in frontierStateToNode:
-                nodeInFrontier = frontierStateToNode[nextState]
-                nextCost = cost + stepCost
-                if nextCost < nodeInFrontier[2]:
-                    nodeInFrontier[1] = [*solution, action]
-                    nodeInFrontier[2] = nextCost
-                    frontier.update(nodeInFrontier, nextCost + heuristic(nextState, problem))
+            if nextState in exploredSet:
+                continue
+            node = frontierMap.get(nextState)
+
+            if node:
+                g = curG + stepCost
+                _, _, oldG, h = node
+                if g < oldG:
+                    f = g + h
+                    node[1] = [*solution, action]
+                    node[2] = g
+                    frontier.update(node, f)
+                else:
+                    pass  # ignore
+            else:
+                g = curG + stepCost
+                h = heuristic(nextState, problem)
+                f = g + h
+                node = [nextState, [*solution, action], g, h]
+                frontier.push(node, f)
+                frontierMap[nextState] = node
 
 
 def uniformCostSearch(problem):
