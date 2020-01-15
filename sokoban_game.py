@@ -15,9 +15,11 @@ STEP_NONE = 0
 STEP_THINK = 1
 STEP_ACT = 2
 
+PLAYMODE_STEP_PLAY = 0
+PLAYMODE_STEP_WIN = 1
+
 
 class SokobanGame(object):
-
     def __init__(self):
         loader = space.SokobanLoader()
         self.layouts = loader.load_maps()
@@ -30,6 +32,11 @@ class SokobanGame(object):
         self.window = pyglet.window.Window()
         self.window.event(self.on_draw)
         self.window.event(self.on_key_press)
+
+        self.play_mode = True
+        self.play_mode_step = PLAYMODE_STEP_PLAY
+        self.play_mode_win_remain = 0
+
         self.cur_level = None
         self.start_state = None
         self.state = None
@@ -45,6 +52,7 @@ class SokobanGame(object):
 
         self.label1 = pyglet.text.Label('', font_size=16, x=10, y=450)
         self.label2 = pyglet.text.Label('', font_size=16, x=10, y=10)
+        self.labelWin = pyglet.text.Label('', bold=True, color=(255, 0, 0, 255), font_size=24, x=10, y=400)
 
         self.batch = None
         self.all_sprites = None
@@ -101,6 +109,9 @@ class SokobanGame(object):
 
         self.state_history.append(self.state)
         self._set_state(nxt)
+        if self.play_mode and self.state.is_finished():
+            self.play_mode_step = PLAYMODE_STEP_WIN
+            self.play_mode_win_remain = 5
 
     def _set_state(self, state):
         self.state = state
@@ -120,6 +131,7 @@ class SokobanGame(object):
         if symbol in KEY_TO_ACTIONS:
             self.stop_plan()
             self.act(KEY_TO_ACTIONS[symbol])
+
         elif symbol == key.B:
             self.stop_plan()
             self.undo()
@@ -141,6 +153,10 @@ class SokobanGame(object):
                 self.start_plan()
         elif symbol == key.END:
             self.stop_plan()
+
+        elif symbol == key.M:
+            self.play_mode = not self.play_mode
+            self.update_label()
 
         elif symbol == key._1:
             self.solver_algorithm = solver.BFS
@@ -170,6 +186,14 @@ class SokobanGame(object):
                 return c
 
     def step(self, dt):
+        if self.play_mode and self.play_mode_step == PLAYMODE_STEP_WIN:
+            self.play_mode_win_remain -= dt
+            if self.play_mode_win_remain < 0:
+                self.play_mode_step = PLAYMODE_STEP_PLAY
+                nxt = self.cur_level + 1
+                self.start_level(nxt)
+            self.update_label()
+
         if self.step_state == STEP_NONE:
             return
 
@@ -209,11 +233,25 @@ class SokobanGame(object):
     algorithm_to_text = {solver.BFS: 'bfs', solver.ASTAR: 'astar', solver.ASTAR_DEADLOCK: 'astar_deadlock'}
 
     def update_label(self):
-        self.label1.text = SokobanGame.algorithm_to_text[self.solver_algorithm]
-        solved_text = (self.cur_level in self.solved) and 'solved' or 'unsolved'
-        explored_text = (self.cur_level not in self.solved and self.step_state == STEP_NONE) \
-                        and ' ' or 'explored={0}'.format(self.plan_explored)
-        self.label2.text = '{0} {1} {2}'.format(solved_text, SokobanGame.step_to_text[self.step_state], explored_text)
+        if self.play_mode:
+            self.label1.text = "第 {0} 关".format(self.cur_level)
+            if self.step_state == STEP_THINK:
+                self.label2.text = '解决中... {0}'.format(self.plan_explored)
+            else:
+                self.label2.text = ""
+
+            if self.play_mode_step == PLAYMODE_STEP_WIN:
+                self.labelWin.text = "做的好，{0} 秒后进入第 {1} 关".format(int(self.play_mode_win_remain), self.cur_level + 1)
+            else:
+                self.labelWin.text = ""
+
+        else:
+            self.label1.text = SokobanGame.algorithm_to_text[self.solver_algorithm]
+            solved_text = (self.cur_level in self.solved) and 'solved' or 'unsolved'
+            explored_text = (self.cur_level not in self.solved and self.step_state == STEP_NONE) \
+                            and ' ' or 'explored={0}'.format(self.plan_explored)
+            self.label2.text = '{0} {1} {2}'.format(solved_text, SokobanGame.step_to_text[self.step_state],
+                                                    explored_text)
 
     def start_plan(self):
         if self.solver:
@@ -252,6 +290,7 @@ class SokobanGame(object):
         self.batch.draw()
         self.label1.draw()
         self.label2.draw()
+        self.labelWin.draw()
 
     def run(self):
         pyglet.app.run()
