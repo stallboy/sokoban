@@ -23,13 +23,13 @@ class SokobanGame(object):
     def __init__(self):
         loader = space.SokobanLoader()
         self.layouts = loader.load_maps()
-        self.tiles = loader.load_tiles()
+        self.tiles = loader.load_tiles_sep()
         self.settings = space.SokobanSettings()
         self.solved = self.settings.solved
         print("{0}关未解决".format(len(self.layouts) - len(self.solved)))
         self.tile_width = self.tiles[0].width
 
-        self.window = pyglet.window.Window()
+        self.window = pyglet.window.Window(fullscreen=True) # width=1500, height=900,
         self.window.event(self.on_draw)
         self.window.event(self.on_key_press)
 
@@ -50,7 +50,7 @@ class SokobanGame(object):
         self.planned_actions = []
         self.planned_actions_idx = 0
 
-        self.label1 = pyglet.text.Label('', font_size=16, x=10, y=450)
+        self.label1 = pyglet.text.Label('', font_size=16, x=10, y=self.window.height-80)
         self.label2 = pyglet.text.Label('', font_size=16, x=10, y=10)
         self.labelWin = pyglet.text.Label('', bold=True, color=(255, 0, 0, 255), font_size=24, x=10, y=400)
 
@@ -234,7 +234,7 @@ class SokobanGame(object):
 
     def update_label(self):
         if self.play_mode:
-            self.label1.text = "第 {0} 关".format(self.cur_level)
+            self.label1.text = "第 {0} 关 {1}".format(self.cur_level, SokobanGame.algorithm_to_text[self.solver_algorithm])
             if self.step_state == STEP_THINK:
                 self.label2.text = '解决中... {0}'.format(self.plan_explored)
             else:

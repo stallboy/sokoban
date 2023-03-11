@@ -84,6 +84,20 @@ class SokobanLoader(object):
         tiles = pyglet.image.TextureGrid(tile_seq)
         return tiles
 
+    def load_tiles_sep(self):
+        ar =  [ pyglet.resource.image(fn) for fn in ["0_wall.png",
+                                                      "1_floor.png",
+                                                      "2_outside.png",
+                                                      "3_box.png",
+                                                      "4_box_in_dst.png",
+                                                      "5_dst.png",
+                                                      "6_soko.png",
+                                                      "7_soko_in_dst.png"]]
+
+        for a in ar:
+            a.width = 64
+            a.height = 64
+        return ar
 
 class SokobanSettings(object):
     def __init__(self):
